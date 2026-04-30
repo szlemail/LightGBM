@@ -503,9 +503,13 @@ Learning Control Parameters
 
    -  regularization weight for time uniformity penalty
 
-   -  penalty = lambda_time * |mean_time_left - mean_time_right|
+   -  penalty = lambda_time * |mean_time_left - mean_time_right| / time_range
 
-   -  requires time_column to be set
+   -  time_range = max(time_values) - min(time_values), computed once globally
+
+   -  typical values: 0.01 ~ 1.0, scale-invariant across datasets
+
+   -  requires time_column or time_values to be set
 
 -  ``drop_rate`` :raw-html:`<a id="drop_rate" title="Permalink to this parameter" href="#drop_rate">&#x1F517;&#xFE0E;</a>`, default = ``0.1``, type = double, aliases: ``rate_drop``, constraints: ``0.0 <= drop_rate <= 1.0``
 

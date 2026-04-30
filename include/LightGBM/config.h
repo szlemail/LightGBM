@@ -437,8 +437,10 @@ struct Config {
   // alias = time_reg
   // check = >=0.0
   // desc = regularization weight for time uniformity penalty
-  // desc = penalty = lambda_time * |mean_time_left - mean_time_right|
-  // desc = requires time_column to be set
+  // desc = penalty = lambda_time * |mean_time_left - mean_time_right| / time_range
+  // desc = time_range = max(time_values) - min(time_values), auto-normalized
+  // desc = typical values 0.01 ~ 1.0, scale-invariant across datasets
+  // desc = requires time_column or time_values to be set
   double lambda_time = 0.0;
 
   // alias = rate_drop

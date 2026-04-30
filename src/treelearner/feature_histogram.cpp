@@ -229,7 +229,7 @@ void FeatureHistogram::FindBestThresholdCategoricalInner(double sum_gradient,
         double bin_time = time_data_[t];
         double mean_left = bin_time / cnt;
         double mean_right = (total_time_ - bin_time) / other_count;
-        current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right);
+        current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right) / global_time_range_;
       }
       // gain with split is worse than without split
       if (current_gain <= min_gain_shift) {
@@ -343,7 +343,7 @@ void FeatureHistogram::FindBestThresholdCategoricalInner(double sum_gradient,
           double sum_right_time = total_time_ - sum_left_time;
           double mean_left = sum_left_time / left_count;
           double mean_right = sum_right_time / right_count;
-          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right);
+          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right) / global_time_range_;
         }
         if (current_gain <= min_gain_shift) {
           continue;
@@ -528,7 +528,7 @@ void FeatureHistogram::FindBestThresholdCategoricalIntInner(int64_t int_sum_grad
         double bin_time = time_data_[t];
         double mean_left = bin_time / cnt;
         double mean_right = (total_time_ - bin_time) / other_count;
-        current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right);
+        current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right) / global_time_range_;
       }
       // gain with split is worse than without split
       if (current_gain <= min_gain_shift) {
@@ -691,7 +691,7 @@ void FeatureHistogram::FindBestThresholdCategoricalIntInner(int64_t int_sum_grad
           double sum_right_time = total_time_ - sum_left_time;
           double mean_left = sum_left_time / left_count;
           double mean_right = sum_right_time / right_count;
-          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right);
+          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right) / global_time_range_;
         }
         if (current_gain <= min_gain_shift) {
           continue;

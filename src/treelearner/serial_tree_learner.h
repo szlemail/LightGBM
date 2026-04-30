@@ -244,6 +244,7 @@ class SerialTreeLearner: public TreeLearner {
   std::vector<double> larger_time_hist_buffer_;
   // total time sum per leaf (indexed by leaf index)
   std::vector<double> leaf_total_time_;
+  double global_time_range_ = 0.0;
 };
 
 inline data_size_t SerialTreeLearner::GetGlobalDataCountInLeaf(int leaf_idx) const {

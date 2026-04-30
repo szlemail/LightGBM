@@ -80,6 +80,9 @@ void SerialTreeLearner::Init(const Dataset* train_data, bool is_constant_hessian
     smaller_time_hist_buffer_.resize(share_state_->num_hist_total_bin(), 0.0);
     larger_time_hist_buffer_.resize(share_state_->num_hist_total_bin(), 0.0);
     leaf_total_time_.resize(config_->num_leaves, 0.0);
+    const label_t* tv = train_data_->metadata().time_values();
+    auto minmax = std::minmax_element(tv, tv + num_data_);
+    global_time_range_ = *(minmax.second) - *(minmax.first);
   }
   Log::Info("Number of data points in the train set: %d, number of used features: %d", num_data_, num_features_);
   if (CostEfficientGradientBoosting::IsEnable(config_)) {
@@ -495,6 +498,10 @@ void SerialTreeLearner::ConstructTimeHistograms() {
     smaller_time_hist_buffer_.resize(share_state_->num_hist_total_bin(), 0.0);
     larger_time_hist_buffer_.resize(share_state_->num_hist_total_bin(), 0.0);
     leaf_total_time_.resize(config_->num_leaves, 0.0);
+    if (global_time_range_ == 0.0) {
+      auto minmax = std::minmax_element(time_values, time_values + num_data_);
+      global_time_range_ = *(minmax.second) - *(minmax.first);
+    }
   }
   const auto& offsets = share_state_->feature_hist_offsets();
 
@@ -641,7 +648,8 @@ void SerialTreeLearner::FindBestSplitsFromHistograms(
       int leaf_idx = smaller_leaf_splits_->leaf_index();
       smaller_leaf_histogram_array_[feature_index].SetTimeHistogram(
           smaller_time_hist_buffer_.data() + offsets[feature_index],
-          leaf_idx < static_cast<int>(leaf_total_time_.size()) ? leaf_total_time_[leaf_idx] : 0.0);
+          leaf_idx < static_cast<int>(leaf_total_time_.size()) ? leaf_total_time_[leaf_idx] : 0.0,
+          global_time_range_);
     }
 
     ComputeBestSplitForFeature(smaller_leaf_histogram_array_, feature_index,
@@ -710,7 +718,8 @@ void SerialTreeLearner::FindBestSplitsFromHistograms(
       int leaf_idx = larger_leaf_splits_->leaf_index();
       larger_leaf_histogram_array_[feature_index].SetTimeHistogram(
           larger_time_hist_buffer_.data() + offsets[feature_index],
-          leaf_idx < static_cast<int>(leaf_total_time_.size()) ? leaf_total_time_[leaf_idx] : 0.0);
+          leaf_idx < static_cast<int>(leaf_total_time_.size()) ? leaf_total_time_[leaf_idx] : 0.0,
+          global_time_range_);
     }
 
     ComputeBestSplitForFeature(larger_leaf_histogram_array_, feature_index,

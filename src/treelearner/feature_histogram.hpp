@@ -84,9 +84,10 @@ class FeatureHistogram {
     }
   }
 
-  void SetTimeHistogram(const double* time_data, double total_time) {
+  void SetTimeHistogram(const double* time_data, double total_time, double global_time_range) {
     time_data_ = time_data;
     total_time_ = total_time;
+    global_time_range_ = global_time_range;
   }
 
   hist_t* RawData() { return data_; }
@@ -924,7 +925,7 @@ class FeatureHistogram {
           double sum_left_time = total_time_ - sum_right_time;
           double mean_left = sum_left_time / left_count;
           double mean_right = sum_right_time / right_count;
-          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right);
+          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right) / global_time_range_;
         }
         // gain with split is worse than without split
         if (current_gain <= min_gain_shift) {
@@ -1034,7 +1035,7 @@ class FeatureHistogram {
           double sum_right_time = total_time_ - sum_left_time;
           double mean_left = sum_left_time / left_count;
           double mean_right = sum_right_time / right_count;
-          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right);
+          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right) / global_time_range_;
         }
         // gain with split is worse than without split
         if (current_gain <= min_gain_shift) {
@@ -1208,7 +1209,7 @@ class FeatureHistogram {
           double sum_left_time = total_time_ - sum_right_time;
           double mean_left = sum_left_time / left_count;
           double mean_right = sum_right_time / right_count;
-          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right);
+          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right) / global_time_range_;
         }
         // gain with split is worse than without split
         if (current_gain <= min_gain_shift) {
@@ -1337,7 +1338,7 @@ class FeatureHistogram {
           double sum_right_time = total_time_ - sum_left_time;
           double mean_left = sum_left_time / left_count;
           double mean_right = sum_right_time / right_count;
-          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right);
+          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right) / global_time_range_;
         }
         // gain with split is worse than without split
         if (current_gain <= min_gain_shift) {
@@ -1418,6 +1419,7 @@ class FeatureHistogram {
   /*! \brief time histogram data for time uniformity regularization (one double per bin) */
   const double* time_data_ = nullptr;
   double total_time_ = 0.0;
+  double global_time_range_ = 1.0;
   bool is_splittable_ = true;
 
   std::function<void(double, double, data_size_t, const FeatureConstraint*,
