@@ -96,6 +96,8 @@ class DatasetLoader {
   int weight_idx_;
   /*! \brief index of group column */
   int group_idx_;
+  /*! \brief index of time column */
+  int time_idx_;
   /*! \brief Mapper from real feature index to used index*/
   std::unordered_set<int> ignore_features_;
   /*! \brief store feature names */

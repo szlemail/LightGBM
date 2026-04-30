@@ -224,6 +224,13 @@ void FeatureHistogram::FindBestThresholdCategoricalInner(double sum_gradient,
           sum_other_gradient, sum_other_hessian, grad, hess + kEpsilon,
           meta_->config->lambda_l1, l2, meta_->config->max_delta_step,
           constraints, 0, meta_->config->path_smooth, other_count, cnt, parent_output);
+      // apply time uniformity penalty
+      if (time_data_ != nullptr && cnt > 0 && other_count > 0) {
+        double bin_time = time_data_[t];
+        double mean_left = bin_time / cnt;
+        double mean_right = (total_time_ - bin_time) / other_count;
+        current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right);
+      }
       // gain with split is worse than without split
       if (current_gain <= min_gain_shift) {
         continue;
@@ -282,6 +289,7 @@ void FeatureHistogram::FindBestThresholdCategoricalInner(double sum_gradient,
       double sum_left_gradient = 0.0f;
       double sum_left_hessian = kEpsilon;
       data_size_t left_count = 0;
+      double sum_left_time = 0.0;
       for (int i = 0; i < used_bin && i < max_num_cat; ++i) {
         auto t = sorted_idx[start_pos];
         start_pos += dir;
@@ -294,6 +302,9 @@ void FeatureHistogram::FindBestThresholdCategoricalInner(double sum_gradient,
         sum_left_hessian += hess;
         left_count += cnt;
         cnt_cur_group += cnt;
+        if (time_data_ != nullptr) {
+          sum_left_time += time_data_[t];
+        }
 
         if (left_count < meta_->config->min_data_in_leaf ||
             sum_left_hessian < meta_->config->min_sum_hessian_in_leaf) {
@@ -327,6 +338,13 @@ void FeatureHistogram::FindBestThresholdCategoricalInner(double sum_gradient,
             sum_right_hessian, meta_->config->lambda_l1, l2,
             meta_->config->max_delta_step, constraints, 0, meta_->config->path_smooth,
             left_count, right_count, parent_output);
+        // apply time uniformity penalty
+        if (time_data_ != nullptr && left_count > 0 && right_count > 0) {
+          double sum_right_time = total_time_ - sum_left_time;
+          double mean_left = sum_left_time / left_count;
+          double mean_right = sum_right_time / right_count;
+          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right);
+        }
         if (current_gain <= min_gain_shift) {
           continue;
         }
@@ -505,6 +523,13 @@ void FeatureHistogram::FindBestThresholdCategoricalIntInner(int64_t int_sum_grad
           sum_other_gradient, sum_other_hessian, grad, hess,
           meta_->config->lambda_l1, l2, meta_->config->max_delta_step,
           constraints, 0, meta_->config->path_smooth, other_count, cnt, parent_output);
+      // apply time uniformity penalty
+      if (time_data_ != nullptr && cnt > 0 && other_count > 0) {
+        double bin_time = time_data_[t];
+        double mean_left = bin_time / cnt;
+        double mean_right = (total_time_ - bin_time) / other_count;
+        current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right);
+      }
       // gain with split is worse than without split
       if (current_gain <= min_gain_shift) {
         continue;
@@ -583,10 +608,14 @@ void FeatureHistogram::FindBestThresholdCategoricalIntInner(int64_t int_sum_grad
       data_size_t cnt_cur_group = 0;
       PACKED_HIST_ACC_T int_sum_left_gradient_and_hessian = 0;
       data_size_t left_count = 0;
+      double sum_left_time = 0.0;
       for (int i = 0; i < used_bin && i < max_num_cat; ++i) {
         auto t = sorted_idx[start_pos];
         start_pos += dir;
         PACKED_HIST_BIN_T int_grad_and_hess = data_ptr[t];
+        if (time_data_ != nullptr) {
+          sum_left_time += time_data_[t];
+        }
 
         uint32_t int_hess = HIST_BITS_BIN == 16 ?
           static_cast<uint32_t>(int_grad_and_hess & 0x0000ffff) :
@@ -657,6 +686,13 @@ void FeatureHistogram::FindBestThresholdCategoricalIntInner(int64_t int_sum_grad
             sum_right_hessian, meta_->config->lambda_l1, l2,
             meta_->config->max_delta_step, constraints, 0, meta_->config->path_smooth,
             left_count, right_count, parent_output);
+        // apply time uniformity penalty
+        if (time_data_ != nullptr && left_count > 0 && right_count > 0) {
+          double sum_right_time = total_time_ - sum_left_time;
+          double mean_left = sum_left_time / left_count;
+          double mean_right = sum_right_time / right_count;
+          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right);
+        }
         if (current_gain <= min_gain_shift) {
           continue;
         }

@@ -434,6 +434,13 @@ struct Config {
   // desc = can be used to speed up training
   double min_gain_to_split = 0.0;
 
+  // alias = time_reg
+  // check = >=0.0
+  // desc = regularization weight for time uniformity penalty
+  // desc = penalty = lambda_time * |mean_time_left - mean_time_right|
+  // desc = requires time_column to be set
+  double lambda_time = 0.0;
+
   // alias = rate_drop
   // check = >=0.0
   // check = <=1.0
@@ -768,6 +775,16 @@ struct Config {
   // desc = **Note**: data should be grouped by query\_id, for more information, see `Query Data <#query-data>`__
   // desc = **Note**: index starts from ``0`` and it doesn't count the label column when passing type is ``int``, e.g. when label is column\_0 and query\_id is column\_1, the correct parameter is ``query=0``
   std::string group_column = "";
+
+  // type = int or string
+  // alias = time
+  // desc = used to specify the time column for time uniformity regularization
+  // desc = this column is used as metadata for the time penalty, not as a feature
+  // desc = use number for index, e.g. ``time=0`` means column\_0 is the time column
+  // desc = add a prefix ``name:`` for column name, e.g. ``time=name:timestamp``
+  // desc = **Note**: works only in case of loading data directly from text file
+  // desc = **Note**: index starts from ``0`` and it doesn't count the label column when passing type is ``int``
+  std::string time_column = "";
 
   // type = multi-int or string
   // alias = ignore_feature, blacklist

@@ -75,6 +75,12 @@ void SerialTreeLearner::Init(const Dataset* train_data, bool is_constant_hessian
   share_state_->num_hist_total_bin(),
   share_state_->feature_hist_offsets(),
   config_, max_cache_size, config_->num_leaves);
+  // allocate time histogram buffer if time column is specified
+  if (train_data_->metadata().time_values() != nullptr) {
+    smaller_time_hist_buffer_.resize(share_state_->num_hist_total_bin(), 0.0);
+    larger_time_hist_buffer_.resize(share_state_->num_hist_total_bin(), 0.0);
+    leaf_total_time_.resize(config_->num_leaves, 0.0);
+  }
   Log::Info("Number of data points in the train set: %d, number of used features: %d", num_data_, num_features_);
   if (CostEfficientGradientBoosting::IsEnable(config_)) {
     cegb_.reset(new CostEfficientGradientBoosting(this));
@@ -406,6 +412,7 @@ void SerialTreeLearner::FindBestSplits(const Tree* tree, const std::set<int>* fo
   bool use_subtract = parent_leaf_histogram_array_ != nullptr;
 
   ConstructHistograms(is_feature_used, use_subtract);
+  ConstructTimeHistograms();
   FindBestSplitsFromHistograms(is_feature_used, use_subtract, tree);
 }
 
@@ -478,6 +485,91 @@ void SerialTreeLearner::ConstructHistograms(
   }
 }
 
+void SerialTreeLearner::ConstructTimeHistograms() {
+  const label_t* time_values = train_data_->metadata().time_values();
+  if (time_values == nullptr) {
+    return;
+  }
+  // Lazily allocate buffers if time values were set after Init
+  if (smaller_time_hist_buffer_.empty()) {
+    smaller_time_hist_buffer_.resize(share_state_->num_hist_total_bin(), 0.0);
+    larger_time_hist_buffer_.resize(share_state_->num_hist_total_bin(), 0.0);
+    leaf_total_time_.resize(config_->num_leaves, 0.0);
+  }
+  const auto& offsets = share_state_->feature_hist_offsets();
+
+  // Precompute per-feature bin offsets within their feature groups.
+  // FeatureIterator(feat) returns absolute bin values within the group for
+  // non-multi-val features, so we need to subtract the group offset to get
+  // 0-based indices matching the histogram offset layout.
+  std::vector<uint32_t> feature_group_bin_offset(num_features_);
+  for (int feat = 0; feat < num_features_; ++feat) {
+    int group = train_data_->Feature2Group(feat);
+    int sub_feat = train_data_->Feature2SubFeature(feat);
+    if (!train_data_->IsMultiGroup(group)) {
+      feature_group_bin_offset[feat] = train_data_->FeatureGroupBinOffset(group, sub_feat);
+    } else {
+      feature_group_bin_offset[feat] = 0;
+    }
+  }
+
+  // Build time histogram for smaller leaf
+  {
+    const int leaf_idx = smaller_leaf_splits_->leaf_index();
+    const data_size_t* data_indices = smaller_leaf_splits_->data_indices();
+    const data_size_t num_data = smaller_leaf_splits_->num_data_in_leaf();
+
+    std::memset(smaller_time_hist_buffer_.data(), 0, sizeof(double) * offsets[num_features_]);
+
+    std::vector<std::unique_ptr<BinIterator>> bin_iters(num_features_);
+    for (int feat = 0; feat < num_features_; ++feat) {
+      bin_iters[feat].reset(train_data_->FeatureIterator(feat));
+    }
+
+    double total_time = 0.0;
+    for (data_size_t i = 0; i < num_data; ++i) {
+      data_size_t idx = (data_indices != nullptr) ? data_indices[i] : i;
+      double tv = static_cast<double>(time_values[idx]);
+      total_time += tv;
+      for (int feat = 0; feat < num_features_; ++feat) {
+        uint32_t bin = bin_iters[feat]->Get(idx) - feature_group_bin_offset[feat];
+        smaller_time_hist_buffer_[offsets[feat] + bin] += tv;
+      }
+    }
+    if (leaf_idx < static_cast<int>(leaf_total_time_.size())) {
+      leaf_total_time_[leaf_idx] = total_time;
+    }
+  }
+
+  // Build time histogram for larger leaf if it exists
+  if (larger_leaf_splits_ != nullptr && larger_leaf_splits_->leaf_index() >= 0) {
+    const int leaf_idx = larger_leaf_splits_->leaf_index();
+    const data_size_t* data_indices = larger_leaf_splits_->data_indices();
+    const data_size_t num_data = larger_leaf_splits_->num_data_in_leaf();
+
+    std::memset(larger_time_hist_buffer_.data(), 0, sizeof(double) * offsets[num_features_]);
+
+    std::vector<std::unique_ptr<BinIterator>> bin_iters(num_features_);
+    for (int feat = 0; feat < num_features_; ++feat) {
+      bin_iters[feat].reset(train_data_->FeatureIterator(feat));
+    }
+
+    double total_time = 0.0;
+    for (data_size_t i = 0; i < num_data; ++i) {
+      data_size_t idx = (data_indices != nullptr) ? data_indices[i] : i;
+      double tv = static_cast<double>(time_values[idx]);
+      total_time += tv;
+      for (int feat = 0; feat < num_features_; ++feat) {
+        uint32_t bin = bin_iters[feat]->Get(idx) - feature_group_bin_offset[feat];
+        larger_time_hist_buffer_[offsets[feat] + bin] += tv;
+      }
+    }
+    if (leaf_idx < static_cast<int>(leaf_total_time_.size())) {
+      leaf_total_time_[leaf_idx] = total_time;
+    }
+  }
+}
+
 void SerialTreeLearner::FindBestSplitsFromHistograms(
     const std::vector<int8_t>& is_feature_used, bool use_subtract, const Tree* tree) {
   Common::FunctionTimer fun_timer(
@@ -543,6 +635,15 @@ void SerialTreeLearner::FindBestSplitsFromHistograms(
     }
     int real_fidx = train_data_->RealFeatureIndex(feature_index);
 
+    // set time histogram for smaller leaf
+    if (!smaller_time_hist_buffer_.empty()) {
+      const auto& offsets = share_state_->feature_hist_offsets();
+      int leaf_idx = smaller_leaf_splits_->leaf_index();
+      smaller_leaf_histogram_array_[feature_index].SetTimeHistogram(
+          smaller_time_hist_buffer_.data() + offsets[feature_index],
+          leaf_idx < static_cast<int>(leaf_total_time_.size()) ? leaf_total_time_[leaf_idx] : 0.0);
+    }
+
     ComputeBestSplitForFeature(smaller_leaf_histogram_array_, feature_index,
                                real_fidx,
                                smaller_node_used_features[feature_index],
@@ -601,6 +702,15 @@ void SerialTreeLearner::FindBestSplitsFromHistograms(
             larger_leaf_splits_->sum_hessians(),
             larger_leaf_histogram_array_[feature_index].RawData());
       }
+    }
+
+    // set time histogram for larger leaf
+    if (!larger_time_hist_buffer_.empty()) {
+      const auto& offsets = share_state_->feature_hist_offsets();
+      int leaf_idx = larger_leaf_splits_->leaf_index();
+      larger_leaf_histogram_array_[feature_index].SetTimeHistogram(
+          larger_time_hist_buffer_.data() + offsets[feature_index],
+          leaf_idx < static_cast<int>(leaf_total_time_.size()) ? leaf_total_time_[leaf_idx] : 0.0);
     }
 
     ComputeBestSplitForFeature(larger_leaf_histogram_array_, feature_index,

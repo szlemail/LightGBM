@@ -499,6 +499,14 @@ Learning Control Parameters
 
    -  can be used to speed up training
 
+-  ``lambda_time`` :raw-html:`<a id="lambda_time" title="Permalink to this parameter" href="#lambda_time">&#x1F517;&#xFE0E;</a>`, default = ``0.0``, type = double, aliases: ``time_reg``, constraints: ``lambda_time >= 0.0``
+
+   -  regularization weight for time uniformity penalty
+
+   -  penalty = lambda_time * |mean_time_left - mean_time_right|
+
+   -  requires time_column to be set
+
 -  ``drop_rate`` :raw-html:`<a id="drop_rate" title="Permalink to this parameter" href="#drop_rate">&#x1F517;&#xFE0E;</a>`, default = ``0.1``, type = double, aliases: ``rate_drop``, constraints: ``0.0 <= drop_rate <= 1.0``
 
    -  used only in ``dart``
@@ -926,6 +934,20 @@ Dataset Parameters
    -  **Note**: data should be grouped by query\_id, for more information, see `Query Data <#query-data>`__
 
    -  **Note**: index starts from ``0`` and it doesn't count the label column when passing type is ``int``, e.g. when label is column\_0 and query\_id is column\_1, the correct parameter is ``query=0``
+
+-  ``time_column`` :raw-html:`<a id="time_column" title="Permalink to this parameter" href="#time_column">&#x1F517;&#xFE0E;</a>`, default = ``""``, type = int or string, aliases: ``time``
+
+   -  used to specify the time column for time uniformity regularization
+
+   -  this column is used as metadata for the time penalty, not as a feature
+
+   -  use number for index, e.g. ``time=0`` means column\_0 is the time column
+
+   -  add a prefix ``name:`` for column name, e.g. ``time=name:timestamp``
+
+   -  **Note**: works only in case of loading data directly from text file
+
+   -  **Note**: index starts from ``0`` and it doesn't count the label column when passing type is ``int``
 
 -  ``ignore_column`` :raw-html:`<a id="ignore_column" title="Permalink to this parameter" href="#ignore_column">&#x1F517;&#xFE0E;</a>`, default = ``""``, type = multi-int or string, aliases: ``ignore_feature``, ``blacklist``
 

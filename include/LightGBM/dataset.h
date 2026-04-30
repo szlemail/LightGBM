@@ -78,7 +78,7 @@ class Metadata {
   * \param weight_idx Index of weight column, < 0 means doesn't exists
   * \param query_idx Index of query id column, < 0 means doesn't exists
   */
-  void Init(data_size_t num_data, int weight_idx, int query_idx);
+  void Init(data_size_t num_data, int weight_idx, int query_idx, int time_idx = -1);
 
   /*!
   * \brief Allocate space for label, weight (if exists), initial score (if exists) and query (if exists)
@@ -116,6 +116,8 @@ class Metadata {
 
   void SetWeights(const label_t* weights, data_size_t len);
   void SetWeights(const ArrowChunkedArray& array);
+
+  void SetTimeValues(const label_t* time_values, data_size_t len);
 
   void SetQuery(const data_size_t* query, data_size_t len);
   void SetQuery(const ArrowChunkedArray& array);
@@ -163,6 +165,10 @@ class Metadata {
   */
   inline void SetWeightAt(data_size_t idx, label_t value) {
     weights_[idx] = value;
+  }
+
+  inline void SetTimeAt(data_size_t idx, label_t value) {
+    time_values_[idx] = value;
   }
 
   /*!
@@ -217,6 +223,14 @@ class Metadata {
   inline const label_t* weights() const {
     if (!weights_.empty()) {
       return weights_.data();
+    } else {
+      return nullptr;
+    }
+  }
+
+  inline const label_t* time_values() const {
+    if (!time_values_.empty()) {
+      return time_values_.data();
     } else {
       return nullptr;
     }
@@ -386,6 +400,8 @@ class Metadata {
   std::vector<double> init_score_;
   /*! \brief Queries data */
   std::vector<data_size_t> queries_;
+  /*! \brief Time values for time uniformity regularization */
+  std::vector<label_t> time_values_;
   /*! \brief mutex for threading safe call */
   std::mutex mutex_;
   bool weight_load_from_file_;
@@ -826,6 +842,10 @@ class Dataset {
 
   inline bool IsMultiGroup(int i) const {
     return feature_groups_[i]->is_multi_val_;
+  }
+
+  inline uint32_t FeatureGroupBinOffset(int group, int sub_feature) const {
+    return feature_groups_[group]->feature_min_bin(sub_feature);
   }
 
   inline size_t FeatureGroupSizesInByte(int group) const {

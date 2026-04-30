@@ -727,6 +727,7 @@ _FIELD_TYPE_MAPPER = {
     "init_score": _C_API_DTYPE_FLOAT64,
     "group": _C_API_DTYPE_INT32,
     "position": _C_API_DTYPE_INT32,
+    "time_values": _C_API_DTYPE_FLOAT32,
 }
 
 """String name to int feature importance type mapper"""
@@ -2047,6 +2048,7 @@ class Dataset:
                 "min_data_in_bin",
                 "pre_partition",
                 "precise_float_parser",
+                "time_column",
                 "two_round",
                 "use_missing",
                 "weight_column",

@@ -84,6 +84,11 @@ class FeatureHistogram {
     }
   }
 
+  void SetTimeHistogram(const double* time_data, double total_time) {
+    time_data_ = time_data;
+    total_time_ = total_time;
+  }
+
   hist_t* RawData() { return data_; }
 
   int32_t* RawDataInt32() { return reinterpret_cast<int32_t*>(data_); }
@@ -856,6 +861,7 @@ class FeatureHistogram {
       double sum_right_gradient = 0.0f;
       double sum_right_hessian = kEpsilon;
       data_size_t right_count = 0;
+      double sum_right_time = 0.0;
 
       int t = meta_->num_bin - 1 - offset - NA_AS_MISSING;
       const int t_end = 1 - offset;
@@ -875,6 +881,9 @@ class FeatureHistogram {
         sum_right_gradient += grad;
         sum_right_hessian += hess;
         right_count += cnt;
+        if (time_data_ != nullptr) {
+          sum_right_time += time_data_[t];
+        }
         // if data not enough, or sum hessian too small
         if (right_count < meta_->config->min_data_in_leaf ||
             sum_right_hessian < meta_->config->min_sum_hessian_in_leaf) {
@@ -910,6 +919,13 @@ class FeatureHistogram {
             meta_->config->lambda_l2, meta_->config->max_delta_step,
             constraints, meta_->monotone_type, meta_->config->path_smooth,
             left_count, right_count, parent_output);
+        // apply time uniformity penalty
+        if (time_data_ != nullptr && left_count > 0 && right_count > 0) {
+          double sum_left_time = total_time_ - sum_right_time;
+          double mean_left = sum_left_time / left_count;
+          double mean_right = sum_right_time / right_count;
+          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right);
+        }
         // gain with split is worse than without split
         if (current_gain <= min_gain_shift) {
           continue;
@@ -939,6 +955,7 @@ class FeatureHistogram {
       double sum_left_gradient = 0.0f;
       double sum_left_hessian = kEpsilon;
       data_size_t left_count = 0;
+      double sum_left_time = 0.0;
 
       int t = 0;
       const int t_end = meta_->num_bin - 2 - offset;
@@ -957,6 +974,12 @@ class FeatureHistogram {
             sum_left_hessian -= hess;
             left_count -= cnt;
           }
+          if (time_data_ != nullptr) {
+            sum_left_time = total_time_;
+            for (int i = 0; i < meta_->num_bin - offset; ++i) {
+              sum_left_time -= time_data_[i];
+            }
+          }
           t = -1;
         }
       }
@@ -972,6 +995,9 @@ class FeatureHistogram {
           sum_left_hessian += GET_HESS(data_, t);
           left_count += static_cast<data_size_t>(
               Common::RoundInt(GET_HESS(data_, t) * cnt_factor));
+          if (time_data_ != nullptr) {
+            sum_left_time += time_data_[t];
+          }
         }
         // if data not enough, or sum hessian too small
         if (left_count < meta_->config->min_data_in_leaf ||
@@ -1003,6 +1029,13 @@ class FeatureHistogram {
             meta_->config->lambda_l2, meta_->config->max_delta_step,
             constraints, meta_->monotone_type, meta_->config->path_smooth, left_count,
             right_count, parent_output);
+        // apply time uniformity penalty
+        if (time_data_ != nullptr && left_count > 0 && right_count > 0) {
+          double sum_right_time = total_time_ - sum_left_time;
+          double mean_left = sum_left_time / left_count;
+          double mean_right = sum_right_time / right_count;
+          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right);
+        }
         // gain with split is worse than without split
         if (current_gain <= min_gain_shift) {
           continue;
@@ -1094,6 +1127,7 @@ class FeatureHistogram {
     }
     if (REVERSE) {
       PACKED_HIST_ACC_T sum_right_gradient_and_hessian = 0;
+      double sum_right_time = 0.0;
 
       int t = meta_->num_bin - 1 - offset - NA_AS_MISSING;
       const int t_end = 1 - offset;
@@ -1116,6 +1150,9 @@ class FeatureHistogram {
           sum_right_gradient_and_hessian += grad_and_hess_acc;
         } else {
           sum_right_gradient_and_hessian += grad_and_hess;
+        }
+        if (time_data_ != nullptr) {
+          sum_right_time += time_data_[t];
         }
         const uint32_t int_sum_right_hessian = HIST_BITS_ACC == 16 ?
           static_cast<uint32_t>(sum_right_gradient_and_hessian & 0x0000ffff) :
@@ -1166,6 +1203,13 @@ class FeatureHistogram {
             meta_->config->lambda_l2, meta_->config->max_delta_step,
             constraints, meta_->monotone_type, meta_->config->path_smooth,
             left_count, right_count, parent_output);
+        // apply time uniformity penalty
+        if (time_data_ != nullptr && left_count > 0 && right_count > 0) {
+          double sum_left_time = total_time_ - sum_right_time;
+          double mean_left = sum_left_time / left_count;
+          double mean_right = sum_right_time / right_count;
+          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right);
+        }
         // gain with split is worse than without split
         if (current_gain <= min_gain_shift) {
           continue;
@@ -1191,6 +1235,7 @@ class FeatureHistogram {
       }
     } else {
       PACKED_HIST_ACC_T sum_left_gradient_and_hessian = 0;
+      double sum_left_time = 0.0;
 
       int t = 0;
       const int t_end = meta_->num_bin - 2 - offset;
@@ -1209,6 +1254,12 @@ class FeatureHistogram {
               sum_left_gradient_and_hessian -= grad_and_hess_acc;
             } else {
               sum_left_gradient_and_hessian -= grad_and_hess;
+            }
+          }
+          if (time_data_ != nullptr) {
+            sum_left_time = total_time_;
+            for (int i = 0; i < meta_->num_bin - offset; ++i) {
+              sum_left_time -= time_data_[i];
             }
           }
           t = -1;
@@ -1232,6 +1283,9 @@ class FeatureHistogram {
             sum_left_gradient_and_hessian += grad_and_hess_acc;
           } else {
             sum_left_gradient_and_hessian += grad_and_hess;
+          }
+          if (time_data_ != nullptr) {
+            sum_left_time += time_data_[t];
           }
         }
         // if data not enough, or sum hessian too small
@@ -1278,6 +1332,13 @@ class FeatureHistogram {
             meta_->config->lambda_l2, meta_->config->max_delta_step,
             constraints, meta_->monotone_type, meta_->config->path_smooth, left_count,
             right_count, parent_output);
+        // apply time uniformity penalty
+        if (time_data_ != nullptr && left_count > 0 && right_count > 0) {
+          double sum_right_time = total_time_ - sum_left_time;
+          double mean_left = sum_left_time / left_count;
+          double mean_right = sum_right_time / right_count;
+          current_gain -= meta_->config->lambda_time * std::abs(mean_left - mean_right);
+        }
         // gain with split is worse than without split
         if (current_gain <= min_gain_shift) {
           continue;
@@ -1354,6 +1415,9 @@ class FeatureHistogram {
   /*! \brief sum of gradient of each bin */
   hist_t* data_;
   int16_t* data_int16_;
+  /*! \brief time histogram data for time uniformity regularization (one double per bin) */
+  const double* time_data_ = nullptr;
+  double total_time_ = 0.0;
   bool is_splittable_ = true;
 
   std::function<void(double, double, data_size_t, const FeatureConstraint*,

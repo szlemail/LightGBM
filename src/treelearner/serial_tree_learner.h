@@ -149,6 +149,8 @@ class SerialTreeLearner: public TreeLearner {
 
   virtual void ConstructHistograms(const std::vector<int8_t>& is_feature_used, bool use_subtract);
 
+  virtual void ConstructTimeHistograms();
+
   virtual void FindBestSplitsFromHistograms(const std::vector<int8_t>& is_feature_used, bool use_subtract, const Tree*);
 
   /*!
@@ -237,6 +239,11 @@ class SerialTreeLearner: public TreeLearner {
   std::unique_ptr<TrainingShareStates> share_state_;
   std::unique_ptr<CostEfficientGradientBoosting> cegb_;
   std::unique_ptr<GradientDiscretizer> gradient_discretizer_;
+  // time histogram for time uniformity regularization
+  std::vector<double> smaller_time_hist_buffer_;
+  std::vector<double> larger_time_hist_buffer_;
+  // total time sum per leaf (indexed by leaf index)
+  std::vector<double> leaf_total_time_;
 };
 
 inline data_size_t SerialTreeLearner::GetGlobalDataCountInLeaf(int leaf_idx) const {

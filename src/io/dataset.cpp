@@ -962,6 +962,12 @@ bool Dataset::SetFloatField(const char* field_name, const float* field_data,
 #else
     metadata_.SetWeights(field_data, num_element);
 #endif
+  } else if (name == std::string("time_values") || name == std::string("time_value")) {
+#ifdef LABEL_T_USE_DOUBLE
+    Log::Fatal("Don't support LABEL_T_USE_DOUBLE");
+#else
+    metadata_.SetTimeValues(field_data, num_element);
+#endif
   } else {
     return false;
   }
@@ -1010,6 +1016,13 @@ bool Dataset::GetFloatField(const char* field_name, data_size_t* out_len,
     Log::Fatal("Don't support LABEL_T_USE_DOUBLE");
 #else
     *out_ptr = metadata_.weights();
+    *out_len = num_data_;
+#endif
+  } else if (name == std::string("time_values") || name == std::string("time_value")) {
+#ifdef LABEL_T_USE_DOUBLE
+    Log::Fatal("Don't support LABEL_T_USE_DOUBLE");
+#else
+    *out_ptr = metadata_.time_values();
     *out_len = num_data_;
 #endif
   } else {

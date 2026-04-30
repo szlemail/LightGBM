@@ -96,6 +96,7 @@ const std::unordered_map<std::string, std::string>& Config::alias_table() {
   {"lambda", "lambda_l2"},
   {"l2_regularization", "lambda_l2"},
   {"min_split_gain", "min_gain_to_split"},
+  {"time_reg", "lambda_time"},
   {"rate_drop", "drop_rate"},
   {"topk", "top_k"},
   {"mc", "monotone_constraints"},
@@ -140,6 +141,7 @@ const std::unordered_map<std::string, std::string>& Config::alias_table() {
   {"query_column", "group_column"},
   {"query", "group_column"},
   {"query_id", "group_column"},
+  {"time", "time_column"},
   {"ignore_feature", "ignore_column"},
   {"blacklist", "ignore_column"},
   {"cat_feature", "categorical_feature"},
@@ -229,6 +231,7 @@ const std::unordered_set<std::string>& Config::parameter_set() {
   "lambda_l2",
   "linear_lambda",
   "min_gain_to_split",
+  "lambda_time",
   "drop_rate",
   "max_drop",
   "skip_drop",
@@ -281,6 +284,7 @@ const std::unordered_set<std::string>& Config::parameter_set() {
   "label_column",
   "weight_column",
   "group_column",
+  "time_column",
   "ignore_column",
   "categorical_feature",
   "forcedbins_filename",
@@ -423,6 +427,9 @@ void Config::GetMembersFromString(const std::unordered_map<std::string, std::str
   GetDouble(params, "min_gain_to_split", &min_gain_to_split);
   CHECK_GE(min_gain_to_split, 0.0);
 
+  GetDouble(params, "lambda_time", &lambda_time);
+  CHECK_GE(lambda_time, 0.0);
+
   GetDouble(params, "drop_rate", &drop_rate);
   CHECK_GE(drop_rate, 0.0);
   CHECK_LE(drop_rate, 1.0);
@@ -559,6 +566,8 @@ void Config::GetMembersFromString(const std::unordered_map<std::string, std::str
   GetString(params, "weight_column", &weight_column);
 
   GetString(params, "group_column", &group_column);
+
+  GetString(params, "time_column", &time_column);
 
   GetString(params, "ignore_column", &ignore_column);
 
@@ -715,6 +724,7 @@ std::string Config::SaveMembersToString() const {
   str_buf << "[lambda_l2: " << lambda_l2 << "]\n";
   str_buf << "[linear_lambda: " << linear_lambda << "]\n";
   str_buf << "[min_gain_to_split: " << min_gain_to_split << "]\n";
+  str_buf << "[lambda_time: " << lambda_time << "]\n";
   str_buf << "[drop_rate: " << drop_rate << "]\n";
   str_buf << "[max_drop: " << max_drop << "]\n";
   str_buf << "[skip_drop: " << skip_drop << "]\n";
@@ -764,6 +774,7 @@ std::string Config::SaveMembersToString() const {
   str_buf << "[label_column: " << label_column << "]\n";
   str_buf << "[weight_column: " << weight_column << "]\n";
   str_buf << "[group_column: " << group_column << "]\n";
+  str_buf << "[time_column: " << time_column << "]\n";
   str_buf << "[ignore_column: " << ignore_column << "]\n";
   str_buf << "[categorical_feature: " << categorical_feature << "]\n";
   str_buf << "[forcedbins_filename: " << forcedbins_filename << "]\n";
@@ -842,6 +853,7 @@ const std::unordered_map<std::string, std::vector<std::string>>& Config::paramet
     {"lambda_l2", {"reg_lambda", "lambda", "l2_regularization"}},
     {"linear_lambda", {}},
     {"min_gain_to_split", {"min_split_gain"}},
+    {"lambda_time", {"time_reg"}},
     {"drop_rate", {"rate_drop"}},
     {"max_drop", {}},
     {"skip_drop", {}},
@@ -894,6 +906,7 @@ const std::unordered_map<std::string, std::vector<std::string>>& Config::paramet
     {"label_column", {"label"}},
     {"weight_column", {"weight"}},
     {"group_column", {"group", "group_id", "query_column", "query", "query_id"}},
+    {"time_column", {"time"}},
     {"ignore_column", {"ignore_feature", "blacklist"}},
     {"categorical_feature", {"cat_feature", "categorical_column", "cat_column", "categorical_features"}},
     {"forcedbins_filename", {}},
@@ -988,6 +1001,7 @@ const std::unordered_map<std::string, std::string>& Config::ParameterTypes() {
     {"lambda_l2", "double"},
     {"linear_lambda", "double"},
     {"min_gain_to_split", "double"},
+    {"lambda_time", "double"},
     {"drop_rate", "double"},
     {"max_drop", "int"},
     {"skip_drop", "double"},
@@ -1040,6 +1054,7 @@ const std::unordered_map<std::string, std::string>& Config::ParameterTypes() {
     {"label_column", "string"},
     {"weight_column", "string"},
     {"group_column", "string"},
+    {"time_column", "string"},
     {"ignore_column", "vector<int>"},
     {"categorical_feature", "vector<int>"},
     {"forcedbins_filename", "string"},

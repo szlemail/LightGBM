@@ -30,6 +30,7 @@ DatasetLoader::DatasetLoader(const Config& io_config, const PredictFunction& pre
   label_idx_ = 0;
   weight_idx_ = NO_SPECIFIC;
   group_idx_ = NO_SPECIFIC;
+  time_idx_ = NO_SPECIFIC;
   SetHeader(filename);
   store_raw_ = false;
   if (io_config.linear_tree) {
@@ -172,6 +173,26 @@ void DatasetLoader::SetHeader(const char* filename) {
       }
       ignore_features_.emplace(group_idx_);
     }
+    // load time idx
+    if (config_.time_column.size() > 0) {
+      if (Common::StartsWith(config_.time_column, name_prefix)) {
+        std::string name = config_.time_column.substr(name_prefix.size());
+        if (name2idx.count(name) > 0) {
+          time_idx_ = name2idx[name];
+          Log::Info("Using column %s as time column", name.c_str());
+        } else {
+          Log::Fatal("Could not find time column %s in data file", name.c_str());
+        }
+      } else {
+        if (!Common::AtoiAndCheck(config_.time_column.c_str(), &time_idx_)) {
+          Log::Fatal("time_column is not a number,\n"
+                     "if you want to use a column name,\n"
+                     "please add the prefix \"name:\" to the column name");
+        }
+        Log::Info("Using column number %d as time column", time_idx_);
+      }
+      ignore_features_.emplace(time_idx_);
+    }
   }
   if (config_.categorical_feature.size() > 0) {
     if (Common::StartsWith(config_.categorical_feature, name_prefix)) {
@@ -249,7 +270,7 @@ Dataset* DatasetLoader::LoadFromFile(const char* filename, int rank, int num_mac
         dataset->ResizeRaw(dataset->num_data_);
       }
       // initialize label
-      dataset->metadata_.Init(dataset->num_data_, weight_idx_, group_idx_);
+      dataset->metadata_.Init(dataset->num_data_, weight_idx_, group_idx_, time_idx_);
       // extract features
       ExtractFeaturesFromMemory(&text_data, parser.get(), dataset.get());
       text_data.clear();
@@ -270,7 +291,7 @@ Dataset* DatasetLoader::LoadFromFile(const char* filename, int rank, int num_mac
         dataset->ResizeRaw(dataset->num_data_);
       }
       // initialize label
-      dataset->metadata_.Init(dataset->num_data_, weight_idx_, group_idx_);
+      dataset->metadata_.Init(dataset->num_data_, weight_idx_, group_idx_, time_idx_);
       Log::Info("Making second pass...");
       // extract features
       ExtractFeaturesFromFile(filename, parser.get(), used_data_indices, dataset.get());
@@ -326,7 +347,7 @@ Dataset* DatasetLoader::LoadFromFileAlignWithOtherDataset(const char* filename, 
       auto text_data = LoadTextDataToMemory(filename, dataset->metadata_, 0, 1, &num_global_data, &used_data_indices);
       dataset->num_data_ = static_cast<data_size_t>(text_data.size());
       // initialize label
-      dataset->metadata_.Init(dataset->num_data_, weight_idx_, group_idx_);
+      dataset->metadata_.Init(dataset->num_data_, weight_idx_, group_idx_, time_idx_);
       dataset->CreateValid(train_data);
       if (dataset->has_raw()) {
         dataset->ResizeRaw(dataset->num_data_);
@@ -340,7 +361,7 @@ Dataset* DatasetLoader::LoadFromFileAlignWithOtherDataset(const char* filename, 
       dataset->num_data_ = static_cast<data_size_t>(text_reader.CountLine());
       num_global_data = dataset->num_data_;
       // initialize label
-      dataset->metadata_.Init(dataset->num_data_, weight_idx_, group_idx_);
+      dataset->metadata_.Init(dataset->num_data_, weight_idx_, group_idx_, time_idx_);
       dataset->CreateValid(train_data);
       if (dataset->has_raw()) {
         dataset->ResizeRaw(dataset->num_data_);
@@ -955,6 +976,9 @@ void DatasetLoader::CheckDataset(const Dataset* dataset, bool is_load_from_binar
     if (config_.group_column != "") {
       Log::Warning("Parameter group_column works only in case of loading data directly from text file. It will be ignored when loading from binary file.");
     }
+    if (config_.time_column != "") {
+      Log::Warning("Parameter time_column works only in case of loading data directly from text file. It will be ignored when loading from binary file.");
+    }
     if (config_.ignore_column != "") {
       Log::Warning("Parameter ignore_column works only in case of loading data directly from text file. It will be ignored when loading from binary file.");
     }
@@ -1314,6 +1338,8 @@ void DatasetLoader::ExtractFeaturesFromMemory(std::vector<std::string>* text_dat
             dataset->metadata_.SetWeightAt(i, static_cast<label_t>(inner_data.second));
           } else if (inner_data.first == group_idx_) {
             dataset->metadata_.SetQueryAt(i, static_cast<data_size_t>(inner_data.second));
+          } else if (inner_data.first == time_idx_) {
+            dataset->metadata_.SetTimeAt(i, static_cast<label_t>(inner_data.second));
           }
         }
       }
@@ -1373,6 +1399,8 @@ void DatasetLoader::ExtractFeaturesFromMemory(std::vector<std::string>* text_dat
             dataset->metadata_.SetWeightAt(i, static_cast<label_t>(inner_data.second));
           } else if (inner_data.first == group_idx_) {
             dataset->metadata_.SetQueryAt(i, static_cast<data_size_t>(inner_data.second));
+          } else if (inner_data.first == time_idx_) {
+            dataset->metadata_.SetTimeAt(i, static_cast<label_t>(inner_data.second));
           }
         }
       }

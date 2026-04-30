@@ -41,7 +41,7 @@ void Metadata::Init(const char* data_filename) {
 Metadata::~Metadata() {
 }
 
-void Metadata::Init(data_size_t num_data, int weight_idx, int query_idx) {
+void Metadata::Init(data_size_t num_data, int weight_idx, int query_idx, int time_idx) {
   num_data_ = num_data;
   label_ = std::vector<label_t>(num_data_);
   if (weight_idx >= 0) {
@@ -63,6 +63,9 @@ void Metadata::Init(data_size_t num_data, int weight_idx, int query_idx) {
     }
     queries_ = std::vector<data_size_t>(num_data_, 0);
     query_load_from_file_ = false;
+  }
+  if (time_idx >= 0) {
+    time_values_ = std::vector<label_t>(num_data_, 0.0f);
   }
 }
 
@@ -119,6 +122,14 @@ void Metadata::Init(const Metadata& fullset, const data_size_t* used_indices, da
     }
   } else {
     num_weights_ = 0;
+  }
+
+  if (!fullset.time_values_.empty()) {
+    time_values_ = std::vector<label_t>(num_used_indices);
+#pragma omp parallel for num_threads(OMP_NUM_THREADS()) schedule(static, 512) if (num_used_indices >= 1024)
+    for (data_size_t i = 0; i < num_used_indices; ++i) {
+      time_values_[i] = fullset.time_values_[used_indices[i]];
+    }
   }
 
   if (!fullset.init_score_.empty()) {
@@ -509,6 +520,16 @@ void Metadata::SetWeights(const ArrowChunkedArray& array) {
   SetWeightsFromIterator(array.begin<label_t>(), array.end<label_t>());
 }
 
+void Metadata::SetTimeValues(const label_t* time_values, data_size_t len) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (len <= 0) {
+    time_values_.clear();
+    return;
+  }
+  time_values_.resize(len);
+  memcpy(time_values_.data(), time_values, sizeof(label_t) * len);
+}
+
 void Metadata::InsertWeights(const label_t* weights, data_size_t start_index, data_size_t len) {
   if (!weights) {
     Log::Fatal("Passed null weights");
@@ -806,6 +827,8 @@ void Metadata::LoadFromMemory(const void* memory) {
   mem_ptr += VirtualFileWriter::AlignedSize(sizeof(num_weights_));
   num_queries_ = *(reinterpret_cast<const data_size_t*>(mem_ptr));
   mem_ptr += VirtualFileWriter::AlignedSize(sizeof(num_queries_));
+  int has_time = *(reinterpret_cast<const int*>(mem_ptr));
+  mem_ptr += VirtualFileWriter::AlignedSize(sizeof(has_time));
 
   if (!label_.empty()) {
     label_.clear();
@@ -833,6 +856,11 @@ void Metadata::LoadFromMemory(const void* memory) {
                                               (num_queries_ + 1));
     query_load_from_file_ = true;
   }
+  if (has_time) {
+    time_values_ = std::vector<label_t>(num_data_);
+    std::memcpy(time_values_.data(), mem_ptr, sizeof(label_t) * num_data_);
+    mem_ptr += VirtualFileWriter::AlignedSize(sizeof(label_t) * num_data_);
+  }
   CalculateQueryWeights();
 }
 
@@ -840,6 +868,8 @@ void Metadata::SaveBinaryToFile(BinaryWriter* writer) const {
   writer->AlignedWrite(&num_data_, sizeof(num_data_));
   writer->AlignedWrite(&num_weights_, sizeof(num_weights_));
   writer->AlignedWrite(&num_queries_, sizeof(num_queries_));
+  int has_time = !time_values_.empty() ? 1 : 0;
+  writer->AlignedWrite(&has_time, sizeof(has_time));
   writer->AlignedWrite(label_.data(), sizeof(label_t) * num_data_);
   if (!weights_.empty()) {
     writer->AlignedWrite(weights_.data(), sizeof(label_t) * num_weights_);
@@ -847,6 +877,9 @@ void Metadata::SaveBinaryToFile(BinaryWriter* writer) const {
   if (!query_boundaries_.empty()) {
     writer->AlignedWrite(query_boundaries_.data(),
                          sizeof(data_size_t) * (num_queries_ + 1));
+  }
+  if (!time_values_.empty()) {
+    writer->AlignedWrite(time_values_.data(), sizeof(label_t) * num_data_);
   }
   if (num_init_score_ > 0) {
     Log::Warning("Please note that `init_score` is not saved in binary file.\n"
@@ -858,6 +891,8 @@ size_t Metadata::SizesInByte() const {
   size_t size = VirtualFileWriter::AlignedSize(sizeof(num_data_)) +
                 VirtualFileWriter::AlignedSize(sizeof(num_weights_)) +
                 VirtualFileWriter::AlignedSize(sizeof(num_queries_));
+  int has_time = !time_values_.empty() ? 1 : 0;
+  size += VirtualFileWriter::AlignedSize(sizeof(has_time));
   size += VirtualFileWriter::AlignedSize(sizeof(label_t) * num_data_);
   if (!weights_.empty()) {
     size += VirtualFileWriter::AlignedSize(sizeof(label_t) * num_weights_);
@@ -865,6 +900,9 @@ size_t Metadata::SizesInByte() const {
   if (!query_boundaries_.empty()) {
     size += VirtualFileWriter::AlignedSize(sizeof(data_size_t) *
                                            (num_queries_ + 1));
+  }
+  if (!time_values_.empty()) {
+    size += VirtualFileWriter::AlignedSize(sizeof(label_t) * num_data_);
   }
   return size;
 }
