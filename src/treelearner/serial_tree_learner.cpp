@@ -505,75 +505,133 @@ void SerialTreeLearner::ConstructTimeHistograms() {
   }
   const auto& offsets = share_state_->feature_hist_offsets();
 
-  // Precompute per-feature bin offsets within their feature groups.
-  // FeatureIterator(feat) returns absolute bin values within the group for
-  // non-multi-val features, so we need to subtract the group offset to get
-  // 0-based indices matching the histogram offset layout.
-  std::vector<uint32_t> feature_group_bin_offset(num_features_);
+  // Pre-compute per-feature raw data accessors to avoid virtual BinIterator calls.
+  // For dense features in single-feature groups, raw bin values map directly to
+  // per-feature histogram bins (same layout as ConstructHistogram uses).
+  // For multi-feature non-multi-val groups or sparse features, fall back to BinIterator.
+  struct FeatureAccessor {
+    const uint8_t* data_u8 = nullptr;
+    const uint16_t* data_u16 = nullptr;
+    const uint32_t* data_u32 = nullptr;
+    bool is_4bit = false;
+    bool use_iterator = false;
+    std::unique_ptr<BinIterator> iter;
+  };
+  std::vector<FeatureAccessor> accessors(num_features_);
   for (int feat = 0; feat < num_features_; ++feat) {
     int group = train_data_->Feature2Group(feat);
     int sub_feat = train_data_->Feature2SubFeature(feat);
-    if (!train_data_->IsMultiGroup(group)) {
-      feature_group_bin_offset[feat] = train_data_->FeatureGroupBinOffset(group, sub_feat);
+    bool is_multi = train_data_->IsMultiGroup(group);
+    int sub_idx = is_multi ? sub_feat : -1;
+
+    uint8_t bit_type = 0;
+    bool is_sparse = false;
+    BinIterator* iter = nullptr;
+    const void* col_data = train_data_->GetColWiseData(
+        group, sub_idx, &bit_type, &is_sparse, &iter);
+
+    bool can_fast_path = !is_sparse && col_data != nullptr;
+    // For non-multi-val groups, only fast-path single-feature groups where
+    // raw bin == per-feature relative bin. Multi-feature groups need bin_offset
+    // adjustment which the fast path doesn't handle.
+    if (can_fast_path && !is_multi) {
+      can_fast_path = (train_data_->FeatureNumBin(feat) ==
+                       train_data_->FeatureGroupNumBin(group));
+    }
+
+    if (can_fast_path) {
+      switch (bit_type) {
+        case 4:
+          accessors[feat].is_4bit = true;
+          accessors[feat].data_u8 = static_cast<const uint8_t*>(col_data);
+          break;
+        case 8:
+          accessors[feat].data_u8 = static_cast<const uint8_t*>(col_data);
+          break;
+        case 16:
+          accessors[feat].data_u16 = static_cast<const uint16_t*>(col_data);
+          break;
+        case 32:
+          accessors[feat].data_u32 = static_cast<const uint32_t*>(col_data);
+          break;
+      }
     } else {
-      feature_group_bin_offset[feat] = 0;
+      accessors[feat].use_iterator = true;
+      if (iter != nullptr) {
+        accessors[feat].iter.reset(iter);
+      } else {
+        accessors[feat].iter.reset(train_data_->FeatureIterator(feat));
+      }
     }
   }
 
-  // Build time histogram for smaller leaf
-  {
-    const int leaf_idx = smaller_leaf_splits_->leaf_index();
-    const data_size_t* data_indices = smaller_leaf_splits_->data_indices();
-    const data_size_t num_data = smaller_leaf_splits_->num_data_in_leaf();
+  // Helper lambda: build time histogram for one leaf
+  auto build_hist = [&](double* hist_buf, int leaf_idx,
+                        const data_size_t* data_indices, data_size_t num_data) {
+    std::memset(hist_buf, 0, sizeof(double) * offsets[num_features_]);
 
-    std::memset(smaller_time_hist_buffer_.data(), 0, sizeof(double) * offsets[num_features_]);
-
-    std::vector<std::unique_ptr<BinIterator>> bin_iters(num_features_);
-    for (int feat = 0; feat < num_features_; ++feat) {
-      bin_iters[feat].reset(train_data_->FeatureIterator(feat));
-    }
-
+    // Accumulate total time
     double total_time = 0.0;
     for (data_size_t i = 0; i < num_data; ++i) {
       data_size_t idx = (data_indices != nullptr) ? data_indices[i] : i;
-      double tv = static_cast<double>(time_values[idx]);
-      total_time += tv;
-      for (int feat = 0; feat < num_features_; ++feat) {
-        uint32_t bin = bin_iters[feat]->Get(idx) - feature_group_bin_offset[feat];
-        smaller_time_hist_buffer_[offsets[feat] + bin] += tv;
-      }
+      total_time += static_cast<double>(time_values[idx]);
     }
-    if (leaf_idx < static_cast<int>(leaf_total_time_.size())) {
+    if (leaf_idx >= 0 && leaf_idx < static_cast<int>(leaf_total_time_.size())) {
       leaf_total_time_[leaf_idx] = total_time;
     }
-  }
 
-  // Build time histogram for larger leaf if it exists
+    // Feature-outer, sample-inner loop for cache-friendly bin data access.
+    // Direct array access eliminates virtual BinIterator::Get() calls.
+    for (int feat = 0; feat < num_features_; ++feat) {
+      double* hist = hist_buf + offsets[feat];
+      if (!accessors[feat].use_iterator) {
+        if (accessors[feat].is_4bit) {
+          const uint8_t* d = accessors[feat].data_u8;
+          for (data_size_t i = 0; i < num_data; ++i) {
+            data_size_t idx = (data_indices != nullptr) ? data_indices[i] : i;
+            hist[(d[idx >> 1] >> ((idx & 1) << 2)) & 0xf] += time_values[idx];
+          }
+        } else if (accessors[feat].data_u8 != nullptr) {
+          const uint8_t* d = accessors[feat].data_u8;
+          for (data_size_t i = 0; i < num_data; ++i) {
+            data_size_t idx = (data_indices != nullptr) ? data_indices[i] : i;
+            hist[d[idx]] += time_values[idx];
+          }
+        } else if (accessors[feat].data_u16 != nullptr) {
+          const uint16_t* d = accessors[feat].data_u16;
+          for (data_size_t i = 0; i < num_data; ++i) {
+            data_size_t idx = (data_indices != nullptr) ? data_indices[i] : i;
+            hist[d[idx]] += time_values[idx];
+          }
+        } else if (accessors[feat].data_u32 != nullptr) {
+          const uint32_t* d = accessors[feat].data_u32;
+          for (data_size_t i = 0; i < num_data; ++i) {
+            data_size_t idx = (data_indices != nullptr) ? data_indices[i] : i;
+            hist[d[idx]] += time_values[idx];
+          }
+        }
+      } else {
+        BinIterator* it = accessors[feat].iter.get();
+        for (data_size_t i = 0; i < num_data; ++i) {
+          data_size_t idx = (data_indices != nullptr) ? data_indices[i] : i;
+          hist[it->Get(idx)] += time_values[idx];
+        }
+      }
+    }
+  };
+
+  // Smaller leaf
+  build_hist(smaller_time_hist_buffer_.data(),
+             smaller_leaf_splits_->leaf_index(),
+             smaller_leaf_splits_->data_indices(),
+             smaller_leaf_splits_->num_data_in_leaf());
+
+  // Larger leaf
   if (larger_leaf_splits_ != nullptr && larger_leaf_splits_->leaf_index() >= 0) {
-    const int leaf_idx = larger_leaf_splits_->leaf_index();
-    const data_size_t* data_indices = larger_leaf_splits_->data_indices();
-    const data_size_t num_data = larger_leaf_splits_->num_data_in_leaf();
-
-    std::memset(larger_time_hist_buffer_.data(), 0, sizeof(double) * offsets[num_features_]);
-
-    std::vector<std::unique_ptr<BinIterator>> bin_iters(num_features_);
-    for (int feat = 0; feat < num_features_; ++feat) {
-      bin_iters[feat].reset(train_data_->FeatureIterator(feat));
-    }
-
-    double total_time = 0.0;
-    for (data_size_t i = 0; i < num_data; ++i) {
-      data_size_t idx = (data_indices != nullptr) ? data_indices[i] : i;
-      double tv = static_cast<double>(time_values[idx]);
-      total_time += tv;
-      for (int feat = 0; feat < num_features_; ++feat) {
-        uint32_t bin = bin_iters[feat]->Get(idx) - feature_group_bin_offset[feat];
-        larger_time_hist_buffer_[offsets[feat] + bin] += tv;
-      }
-    }
-    if (leaf_idx < static_cast<int>(leaf_total_time_.size())) {
-      leaf_total_time_[leaf_idx] = total_time;
-    }
+    build_hist(larger_time_hist_buffer_.data(),
+               larger_leaf_splits_->leaf_index(),
+               larger_leaf_splits_->data_indices(),
+               larger_leaf_splits_->num_data_in_leaf());
   }
 }
 
